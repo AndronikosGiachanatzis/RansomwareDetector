@@ -11,6 +11,7 @@ from torch.autograd import Variable
 import pandas as pd
 
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import normalize
 from torch.utils.data import Dataset, DataLoader
 from colorama import Fore, Back, Style
@@ -23,41 +24,46 @@ from train_val_pred import *
 from auxiliary import *
 
 
-
 # DEFINE CONSTANTS
 # check if there is a gpu available
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-MAX_EPOCHS = 50
+MAX_EPOCHS = 20
 LEARNING_RATE = 0.03
-
+END_OF_CONTINUOUS = 6
 
 def main():
     # load datasets. TODO: Need to find a way to include the timestamp! It doesn't accept an object as input only numbers
     print('[+] ------ LOADING DATASET ------')
-    dataset = pd.read_csv(r'Dataset\dataset.csv')
+    # dataset = pd.read_csv(r'Dataset\datasetNormalJoined.csv')
+    dataset = pd.read_csv(r'Dataset\datasetNormalJoined.csv')
 
     # ONE HOT FEATURES
     dataset = one_hot(dataset)
-
     dataset = dataset.values
+
     # dataset = np.unique(dataset, axis=0)
+    # dataset = np.append(dataset, dataset, axis=0)
     # dataset = np.append(np.append(dataset, dataset, axis=0), dataset, axis=0)
     # dataset = np.append(np.append(dataset, dataset, axis=0), dataset, axis=0)
     print(dataset.shape)
 
     print('[+] ------ PREPROCESSING ------')
     # split into train and validation set
-    d_train, d_val = train_test_split(dataset, test_size=0.2, random_state=random.randint(0,100))
+    d_train, d_val = train_test_split(dataset, test_size=0.1, random_state=random.randint(0,100))
 
     print('Training data shape:', d_train.shape)
     print('Validation data shape:', d_val.shape)
     # TODO: Normalize only numerical features and not one hot encoded ones
     # normalize
-    d_train = normalize(d_train, axis=0)
-    d_val = normalize(d_val, axis=0)
-    # d_train = centring(d_train)
-    # d_val = centring(d_val)
-    print(np.max(d_train[:,0]))
+    # d_train[:, :-END_OF_CONTINUOUS] = normalize(d_train[:, :-END_OF_CONTINUOUS], axis=0)
+    # d_val[:, :-END_OF_CONTINUOUS] = normalize(d_val[:, :-END_OF_CONTINUOUS], axis=0)
+    scaler, d_train[:, :-END_OF_CONTINUOUS] = scaleDataset(d_train[:, :-END_OF_CONTINUOUS])
+    d_val[:, :-END_OF_CONTINUOUS] = scaler.transform(d_val[:, :-END_OF_CONTINUOUS])
+    print(pd.DataFrame(d_train[:,:-END_OF_CONTINUOUS]).describe())
+
+    # d_train[:, :-END_OF_CONTINUOUS] = centring(d_train[:, :-END_OF_CONTINUOUS])
+    # d_val[:, :-END_OF_CONTINUOUS] = centring(d_val[:, :-END_OF_CONTINUOUS])
+
 
 
     print('[+] ------ PREPARATION ------')
@@ -77,11 +83,11 @@ def main():
     params = sum(p.numel() for p in net.parameters() if p.requires_grad)
     print('Trainable params: ', params)
 
-    # loss_func = MeanSquaredLogError()
-    loss_func = nn.MSELoss()
+    loss_func = MeanSquaredLogError()
+    # loss_func = nn.MSELoss()
     optim = torch.optim.SGD(net.parameters(), lr=LEARNING_RATE)
     # optim = torch.optim.Adam(net.parameters(), lr=LEARNING_RATE)
-    # print(summary(net, d_train.shape))
+    print(summary(net, d_train.shape))
 
     print(f'[+] ------ START TRAINING FOR {MAX_EPOCHS} EPOCHS ------')
     losses = list()
@@ -105,23 +111,29 @@ def main():
     end = time.time()
     print(Back.GREEN, '[+] ------ TRAINING FINISHED ------', Style.RESET_ALL)
     print('TRAINING TIME: {:.2f}'.format(end-start))
-
+    # plot learning curves
     plotMetrics(losses, MAX_EPOCHS)
 
     print('[+] ------ TESTING ------')
     test_rans = pd.read_csv(r'Dataset\datasetRANS.csv')
     test_rans = one_hot(test_rans)
-    test_rans = normalize(test_rans.values, axis=0)
+    test_rans = test_rans.values
+    # test_rans[:, :-6] = normalize(test_rans[:, :-6], axis=0)
+    test_rans[:, :-END_OF_CONTINUOUS] = scaler.transform(test_rans[:, :-END_OF_CONTINUOUS])
     test_dataset = numpy_dataset(test_rans)
 
     test_normal = pd.read_csv(r'Dataset\datasetTest.csv')
     test_normal = one_hot(test_normal)
 
     # test_normal = np.unique(test_normal.values, axis=0)
-    test_normal = normalize(test_normal.values, axis=0)
+    test_normal = test_normal.values
+    # test_normal = np.unique(test_normal, axis=0)
+    # test_normal[:, :-6] = normalize(test_normal[:, :-6], axis=0)
+    test_normal[:, :-END_OF_CONTINUOUS] = scaler.transform(test_normal[:, :-END_OF_CONTINUOUS])
     # test_normal = normalize(test_normal, axis=0)
     test_normal_dataset = numpy_dataset(test_normal)
-
+    print(pd.DataFrame(test_normal[:, :-END_OF_CONTINUOUS]).describe())
+    print(pd.DataFrame(test_rans[:, :-END_OF_CONTINUOUS]).describe())
     # test_dataloader = DataLoader(test_dataset, batch_size=test_data.shape[0], shuffle=False, drop_last=True)
     test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False, drop_last=True)
     prev_train_dataloader = DataLoader(train_dataset, batch_size=1, shuffle=False, drop_last=True)
@@ -149,24 +161,26 @@ def main():
 
     its1 = np.linspace(1, len(losses_rans), len(losses_rans))
     its2 = np.linspace(1, len(losses_norm), len(losses_norm))
-    # its3 = np.linspace(1, len(losses_all), len(losses_all))
+    its3 = np.linspace(1, len(losses_prev_train), len(losses_prev_train))
 
     # show on same scale
-    ax1.set_ylim(bottom=0, top=0.5)
-    ax2.set_ylim(bottom=0, top=0.5)
+    # ax1.set_ylim(bottom=0)
+    ax2.set_ylim(bottom=0)
     ax1.plot(its1, losses_rans, color='red')
     ax2.plot(its2, losses_norm, color='blue')
+    # ax2.plot(its3, losses_prev_train, color='blue')
 
     plt.show()
     # multipliers for the threshold
-    multiplier = [(1, 'black'),(3,'pink'),(5, 'green')]
+    multiplier = [(1, 'black'), (3,'pink'), (5, 'green'), (10, 'yellow')]
     print('Ransomware samples', len(test_dataset))
     print('Validation samples', len(test_normal))
     print(*losses_rans, sep='\n')
-    print('Test Loss:', np.asarray(losses_rans).mean())
-    print('Val Loss:', np.asarray(losses_norm).mean())
+    print('RANSOMWARE Loss:', np.asarray(losses_rans).mean())
+    print('NORMAL TEST Loss:', np.asarray(losses_norm).mean())
 
     joined_lists = losses_norm + losses_rans
+    # joined_lists = losses_prev_train + losses_rans
     its = np.linspace(1, len(joined_lists), len(joined_lists))
     plt.figure()
     plt.plot(its, joined_lists)
@@ -179,7 +193,9 @@ def main():
 
     print(*losses_norm, sep='\n')
 
-    print('Threshold:', np.std(np.asarray(losses_prev_train))*3)
+    train_std = np.std(np.asarray(losses_prev_train))
+    for (m, _) in multiplier:
+        print(f"{m}-Sigma Threshold: {train_std*m}")
 
 
 if __name__ == '__main__':
