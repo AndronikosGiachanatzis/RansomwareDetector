@@ -7,15 +7,15 @@ from sklearn.preprocessing import MinMaxScaler
 
 def plotMetrics(l, epochs):
     l = np.array(l).T
-    print(l.shape)
     its = np.linspace(1, epochs, epochs)
-    plt.figure()
+    fig = plt.figure()
+    fig.suptitle('Training and Validation Loss')
     plt.plot(its, l[0, :])
     plt.plot(its, l[1, :])
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.legend(['Train', 'Validation'])
-    plt.savefig('learning_curves.png')
+    plt.savefig('Figures/learning_curves.png', dpi=300, transparent=True)
     plt.show()
 
 

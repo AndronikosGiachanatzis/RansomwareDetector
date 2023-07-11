@@ -41,12 +41,15 @@ def main():
     dataset = one_hot(dataset)
     dataset = dataset.values
 
-    # dataset = np.unique(dataset, axis=0)
-    print(dataset.shape)
+    # keep only unique values
+    dataset = np.unique(dataset, axis=0)
+    # dataset = np.append(dataset, dataset, axis=0)
+    # dataset = np.append(np.append(dataset, dataset, axis=0), dataset, axis=0)
+    print('Complete Dataset shape:', dataset.shape)
 
     print('[+] ------ PREPROCESSING ------')
     # split into train and validation set
-    d_train, d_val = train_test_split(dataset, test_size=0.1, random_state=random.randint(0,100))
+    d_train, d_val = train_test_split(dataset, test_size=0.2, random_state=random.randint(0,100))
 
     print('Training data shape:', d_train.shape)
     print('Validation data shape:', d_val.shape)
@@ -80,7 +83,7 @@ def main():
     params = sum(p.numel() for p in net.parameters() if p.requires_grad)
     print('Trainable params: ', params)
 
-    loss_func = MeanSquaredLogError()
+    loss_func = MeanSquaredLogError() # MSLE is better for this task: https://builtin.com/data-science/msle-vs-mse
     # loss_func = nn.MSELoss()
     optim = torch.optim.SGD(net.parameters(), lr=LEARNING_RATE)
     # optim = torch.optim.Adam(net.parameters(), lr=LEARNING_RATE)
@@ -111,21 +114,23 @@ def main():
     # plot learning curves
     plotMetrics(losses, MAX_EPOCHS)
 
-    print('[+] ------ TESTING ------')
+    print('\n[+] ------ TESTING ------')
+    # load ransomware dataset
     test_rans = pd.read_csv(r'Dataset\datasetRANS.csv')
     test_rans = one_hot(test_rans)
     test_rans = test_rans.values
-    # test_rans[:, :-6] = normalize(test_rans[:, :-6], axis=0)
+    # test_rans[:, :-END_OF_CONTINUOUS] = normalize(test_rans[:, :-END_OF_CONTINUOUS], axis=0)
     test_rans[:, :-END_OF_CONTINUOUS] = scaler.transform(test_rans[:, :-END_OF_CONTINUOUS])
     test_dataset = numpy_dataset(test_rans)
 
+    # load normal test dataset
     test_normal = pd.read_csv(r'Dataset\datasetTest.csv')
     test_normal = one_hot(test_normal)
 
     # test_normal = np.unique(test_normal.values, axis=0)
     test_normal = test_normal.values
     # test_normal = np.unique(test_normal, axis=0)
-    # test_normal[:, :-6] = normalize(test_normal[:, :-6], axis=0)
+    # test_normal[:, :-END_OF_CONTINUOUS] = normalize(test_normal[:, :-END_OF_CONTINUOUS], axis=0)
     test_normal[:, :-END_OF_CONTINUOUS] = scaler.transform(test_normal[:, :-END_OF_CONTINUOUS])
     # test_normal = normalize(test_normal, axis=0)
     test_normal_dataset = numpy_dataset(test_normal)
@@ -135,11 +140,13 @@ def main():
     test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False, drop_last=True)
     prev_train_dataloader = DataLoader(train_dataset, batch_size=1, shuffle=False, drop_last=True)
     test_normal_dataloader = DataLoader(test_normal_dataset, batch_size=1, shuffle=False, drop_last=True)
-    # make prediction
+
+    # make predictions for all sets
     pred_rans_store = predict(net, test_dataloader)
     pred_norm_store = predict(net, test_normal_dataloader)
     pred_all_store = predict(net, prev_train_dataloader)
 
+    # create loss lists
     losses_rans = list()
     losses_norm = list()
     losses_prev_train = list()
@@ -152,9 +159,10 @@ def main():
     for r in pred_all_store:
         losses_prev_train.append(loss_func(r[0], r[1]).item())
 
-
+    # plot ransomware and normal test loss plots
     fig, (ax1, ax2) = plt.subplots(2)
-    fig.suptitle('Ransomware and Normal (Unseen) Loss distribution')
+    fig.suptitle('Ransomware and Normal Test Loss')
+    fig.subplots_adjust(hspace=0.6)
 
     its1 = np.linspace(1, len(losses_rans), len(losses_rans))
     its2 = np.linspace(1, len(losses_norm), len(losses_norm))
@@ -165,34 +173,65 @@ def main():
     ax2.set_ylim(bottom=0)
     ax1.plot(its1, losses_rans, color='red')
     ax2.plot(its2, losses_norm, color='blue')
+
+    # add titles and labels
+    ax1.set_title('Ransomware')
+    ax1.set_ylabel('Loss')
+    ax1.set_xlabel('Sample')
+    ax2.set_title('Normal Test')
+    ax2.set_ylabel('Loss')
+    ax2.set_xlabel('Sample')
+
     # ax2.plot(its3, losses_prev_train, color='blue')
 
+    plt.savefig('Figures/TestSeparate.png', dpi=300, transparent=True)
     plt.show()
+
     # multipliers for the threshold
-    multiplier = [(1, 'black'), (3,'pink'), (5, 'green'), (10, 'yellow')]
+    multiplier = [(1, 'black'), (3, 'pink'), (5, 'green'), (7, 'purple'), (10, 'yellow')]
     print('Ransomware samples', len(test_dataset))
     print('Validation samples', len(test_normal))
+
+    print('\n Ransomware Losses: ')
     print(*losses_rans, sep='\n')
+
+    print()
     print('RANSOMWARE Loss:', np.asarray(losses_rans).mean())
     print('NORMAL TEST Loss:', np.asarray(losses_norm).mean())
 
+    # plot ransomware and normal plots in one figure
     joined_lists = losses_norm + losses_rans
     # joined_lists = losses_prev_train + losses_rans
     its = np.linspace(1, len(joined_lists), len(joined_lists))
-    plt.figure()
-    plt.plot(its, joined_lists)
+    fig = plt.figure()
+    fig.suptitle('Ransomware (Right) and Normal Test (Left) Loss')
+    plt.xlabel('Sample')
+    plt.ylabel('Loss')
+
+
+    # calculate train statistics
+    train_std = np.std(np.asarray(losses_prev_train))
+    train_mean = np.mean(np.asarray(losses_prev_train))
+
     # draw some thresholds
     for (m, c) in multiplier:
-        plt.axhline(y=np.std(np.asarray(losses_prev_train))*m, color=c, label=f'{m}-sigma')
-    plt.axvline(x=len(losses_norm), color='r')
+        plt.axhline(y=train_mean + train_std*m, color=c, label=f'{m}-sigma')
+    plt.axvline(x=len(joined_lists) - len(losses_rans), color='r', label='Normal/Ransomware samples boundary')
+    # random.shuffle(joined_lists)
+    plt.plot(its, joined_lists)
     plt.legend()
+    plt.savefig('Figures/TestJoin.png', dpi=300, transparent=True)
     plt.show()
 
-    print(*losses_norm, sep='\n')
 
-    train_std = np.std(np.asarray(losses_prev_train))
+    print('\nNormal Test Losses: ')
+    print(*np.unique(np.array(losses_norm)), sep='\n')
+
+    # print sigma rules
+    print()
     for (m, _) in multiplier:
-        print(f"{m}-Sigma Threshold: {train_std*m}")
+        print(f"{m}-Sigma Threshold: {train_mean + train_std*m}")
+
 
 
 if __name__ == '__main__':

@@ -36,11 +36,11 @@ class Autoencoder(nn.Module):
 
         z = self.enc1(data)
         z = self.enc2(z)
-        # z = self.enc3(z)
+        z = self.enc3(z)
 
         z = self.drop(z)
 
-        # z = self.dec3(z)
+        z = self.dec3(z)
         z = self.dec2(z)
         logits = self.dec1(z)
 
