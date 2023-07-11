@@ -42,9 +42,6 @@ def main():
     dataset = dataset.values
 
     # dataset = np.unique(dataset, axis=0)
-    # dataset = np.append(dataset, dataset, axis=0)
-    # dataset = np.append(np.append(dataset, dataset, axis=0), dataset, axis=0)
-    # dataset = np.append(np.append(dataset, dataset, axis=0), dataset, axis=0)
     print(dataset.shape)
 
     print('[+] ------ PREPROCESSING ------')
