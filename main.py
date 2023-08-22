@@ -26,6 +26,8 @@ from auxiliary import *
 
 
 # DEFINE CONSTANTS AND HYPERPARAMETERS
+LOAD_MODEL = True
+MODEL_PATH = r"Model\model.pth"
 # check if there is a gpu available
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 MAX_EPOCHS = 10
@@ -34,8 +36,8 @@ END_OF_CONTINUOUS = len(BINARY_FEATURES)*2
 BATCH_SIZE = 16
 
 TRAIN_PATH = r'Dataset\datasetNormalJoined.csv'
-TEST_RANS_PATH = r'Dataset\DefenseEvasion\datasetNonWorkingRansKill.csv'
-TEST_NORMAL_PATH = r'Dataset\DefenseEvasion\datasetNormalNonWorkingRansKillAuto.csv'
+TEST_RANS_PATH = r'Dataset\DefenseEvasion\datasetWorkingRansKillAuto.csv'
+TEST_NORMAL_PATH = r'Dataset\DefenseEvasion\datasetNormalWorkingRansKillAuto.csv'
 def main():
     # load datasets.
     print('[+] ------ LOADING DATASET ------')
@@ -44,14 +46,12 @@ def main():
 
     # ONE HOT FEATURES
     dataset = one_hot(dataset)
-    n = dataset.iloc[:, :-END_OF_CONTINUOUS]
-    b = dataset.iloc[:, -END_OF_CONTINUOUS:]
+    # n = dataset.iloc[:, :-END_OF_CONTINUOUS]
+    # b = dataset.iloc[:, -END_OF_CONTINUOUS:]
     dataset = dataset.values
-
 
     # keep only unique values. We want unique values in order not to make our model learn more the duplicate samples
     dataset = np.unique(dataset, axis=0)
-    print(pd.DataFrame(dataset[:,0]).value_counts())
     # dataset = np.append(dataset, dataset, axis=0)
     # dataset = np.append(np.append(dataset, dataset, axis=0), dataset, axis=0)
     print('Complete Dataset shape:', dataset.shape)
@@ -80,42 +80,53 @@ def main():
     # define model
     net = Autoencoder(n_features=dataset.shape[1]).to(DEVICE)
 
+    # define loss function
+    loss_func = MeanSquaredLogError()  # MSLE is better for this task: https://builtin.com/data-science/msle-vs-mse
+    # loss_func = nn.MSELoss()
+
     # Calculate the number of traininable params
     params = sum(p.numel() for p in net.parameters() if p.requires_grad)
     print('Trainable params: ', params)
 
-    loss_func = MeanSquaredLogError() # MSLE is better for this task: https://builtin.com/data-science/msle-vs-mse
-    # loss_func = nn.MSELoss()
-    optim = torch.optim.SGD(net.parameters(), lr=LEARNING_RATE)
-    # optim = torch.optim.Adam(net.parameters(), lr=LEARNING_RATE)
-    print(summary(net, d_train.shape))
+    if LOAD_MODEL:  # load trained model
+        print('[+] ------ LOADING PRETRAINED MODEL ------')
+        net.load_state_dict(torch.load(MODEL_PATH))
+    else:  # train a new model
 
-    print(f'[+] ------ START TRAINING FOR {MAX_EPOCHS} EPOCHS ------')
-    losses = list()
+        optim = torch.optim.SGD(net.parameters(), lr=LEARNING_RATE)
+        # optim = torch.optim.Adam(net.parameters(), lr=LEARNING_RATE)
+        print(summary(net, d_train.shape))
 
-    # training loop over epochs
-    start = time.time()
-    print(start)
-    for epoch in range(1, MAX_EPOCHS+1):
-        try:
-            # train_loss = train(net, train_dataloader, optim, loss_func, epoch)
-            train_loss = train(net, train_dataloader, optim, loss_func, epoch)
-        except KeyboardInterrupt:
-            print('KEYBOARD INTERRUPT DETECTED. EXITING...')
-            sys.exit(1)
-        try:
-            val_loss = val(net, val_dataloader, optim, loss_func, epoch)
-        except KeyboardInterrupt:
-            print('KEYBOARD INTERRUPT DETECTED. EXITING...')
-            sys.exit(1)
-        losses.append([train_loss, val_loss])
+        print(f'[+] ------ START TRAINING FOR {MAX_EPOCHS} EPOCHS ------')
+        losses = list()
 
-    end = time.time()
-    print(end)
-    print(Back.GREEN, '[+] ------ TRAINING FINISHED ------', Style.RESET_ALL)
-    print('TRAINING TIME: {:.2f}'.format(end-start))
-    # plot learning curves
-    plotMetrics(losses, MAX_EPOCHS)
+        # training loop over epochs
+        start = time.time()
+        print(start)
+        for epoch in range(1, MAX_EPOCHS+1):
+            try:
+                # train_loss = train(net, train_dataloader, optim, loss_func, epoch)
+                train_loss = train(net, train_dataloader, optim, loss_func, epoch)
+            except KeyboardInterrupt:
+                print('KEYBOARD INTERRUPT DETECTED. EXITING...')
+                sys.exit(1)
+            try:
+                val_loss = val(net, val_dataloader, optim, loss_func, epoch)
+            except KeyboardInterrupt:
+                print('KEYBOARD INTERRUPT DETECTED. EXITING...')
+                sys.exit(1)
+            losses.append([train_loss, val_loss])
+
+        end = time.time()
+        print(end)
+        print(Back.GREEN, '[+] ------ TRAINING FINISHED ------', Style.RESET_ALL)
+        print('TRAINING TIME: {:.2f}'.format(end-start))
+
+        # save model
+        torch.save(net.state_dict(), MODEL_PATH)
+
+        # plot learning curves
+        plotMetrics(losses, MAX_EPOCHS)
 
     print('\n[+] ------ TESTING ------')
     # load ransomware dataset
@@ -191,7 +202,7 @@ def main():
     # plt.show()
 
     # multipliers and percentiles for the threshold
-    multiplier = [(4, 'green'), (5, 'black')]
+    multiplier = [(5, 'black')]
     percentiles = [(90, 'yellow'), (95, 'pink'), (99, 'black')]
 
     print('Ransomware samples', len(test_dataset))
@@ -211,7 +222,7 @@ def main():
     fig = plt.figure(figsize=(8,6))
     fig.suptitle(' Normal Test (Left) and Ransomware (Right) Reconstruction Errors')
     plt.xlabel('Sample')
-    plt.ylabel('Loss')
+    plt.ylabel('Reconstruction Error')
 
 
     # calculate train statistics

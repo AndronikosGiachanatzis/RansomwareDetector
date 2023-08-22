@@ -53,5 +53,5 @@ class Autoencoder(nn.Module):
     def _block(in_features, out_features):
         return nn.Sequential(
             nn.Linear(in_features=in_features, out_features=out_features),
-            nn.Tanh(),
+            nn.ReLU(),
         )
